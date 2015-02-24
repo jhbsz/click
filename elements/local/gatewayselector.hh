@@ -3,7 +3,7 @@
 #include <click/element.hh>
 #include <click/string.hh>
 #include <click/timer.hh>
-
+#include <clicknet/ether.h>
 #include <time.h>
 
 #include <set>
@@ -55,21 +55,22 @@ private:
     String _label;
 
     struct GateInfo {
-	std::string mac_address;
+	uint8_t mac_address[6];
 	std::string ip_address;
+        uint16_t link_kbps;
 	time_t timestamp;
 	// int metric;
 	};
     
     struct PortCache {
         uint16_t src_port;
-        IPAddress gate_ip;
+        uint16_t gates_index;
         time_t timestamp;
 	}; 
     
     std::vector<GateInfo> gates;
     std::vector<PortCache> port_cache_table;
-  
+    uint8_t self_mac_address[6];
     Timer _master_timer;
  
     std::string interface_mac_address;
@@ -77,10 +78,8 @@ private:
     void process_pong(Packet *p);
     void process_antipong(Packet * p);
     Packet * select_gate(Packet *p);
-    IPAddress cache_lookup(uint16_t);
-    Packet * set_ip_address(Packet *, IPAddress);
-    IPAddress find_gate(uint16_t);
-    void cache_update(uint16_t, IPAddress);
+    int cache_lookup(uint16_t);
+  void cache_update(uint16_t, uint16_t);
     };
 
 CLICK_ENDDECLS

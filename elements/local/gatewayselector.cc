@@ -2,14 +2,15 @@
 #include <click/ipaddress.hh>
 #include <click/args.hh>
 #include <click/error.hh>
+#include <click/packet.hh>
 #include <click/glue.hh>
 #include <click/straccum.hh>
 #include <click/packet_anno.hh>
 #include <clicknet/wifi.h>
 #include <click/etheraddress.hh>
-#include "gatewayselector.hh"
-
 #include <string>
+#include <cstdio>
+#include "gatewayselector.hh"
 
 CLICK_DECLS
 
@@ -46,6 +47,20 @@ GatewaySelector::GatewaySelector()
 {
   // _label = "";
   //   click_chatter("Inside constructor. Leaving now \n");
+  //  click_chatter("Start of constructor");
+  FILE *addr = fopen("/sys/class/net/mesh0/address", "r");
+  if(addr!=NULL)
+    {
+      fscanf(addr, "%x:%x:%x:%x:%x:%x", (unsigned int *)&self_mac_address[0], (unsigned int *)&self_mac_address[1], (unsigned int *)&self_mac_address[2], (unsigned int *)&self_mac_address[3], (unsigned int *)&self_mac_address[4], (unsigned int *)&self_mac_address[5]);
+      
+      fclose(addr);
+    }
+  else
+    {
+      printf("Failed to read Mac address");      
+      exit(0);
+    }
+  //  click_chatter("End of constructor");
 }
 
 GatewaySelector::~GatewaySelector()
@@ -84,7 +99,7 @@ void GatewaySelector::run_timer(Timer *timer)
 		    }
 		}
 		
-		_master_timer.reschedule_after_sec(GATES_REFRESH_INTERVAL);		
+		_master_timer.reschedule_after_sec(GATES_REFRESH_INTERVAL);	
 }
 
 int
@@ -109,10 +124,11 @@ void GatewaySelector::process_pong(Packet * p)
   // 2. look for mac as key in unresolved_gates map
   // 3. update the corresponding gate_info structure.
   // 4. Remove the gate_info struct from unresolved and put it in resolved.
-	uint8_t src_mac[6], src_ip[4];	
-	uint8_t *ptr = NULL;
 
-	//click_chatter("Inside process_pong\n");
+        uint8_t src_mac[6];
+	uint8_t src_ip[4];	
+	uint16_t link_speed;
+	uint8_t *ptr = NULL;
 
 	if(p->has_mac_header()) {
 		ptr = (uint8_t *)p->mac_header();
@@ -131,8 +147,14 @@ void GatewaySelector::process_pong(Packet * p)
 			src_ip[i] = *ptr;
 			ptr++;
 		}
+		//extract link speed
 		
-		std::string src_mac_string = mac_to_string(src_mac);
+		link_speed = *ptr;
+		link_speed = link_speed<<8;
+		ptr++;
+		link_speed += *ptr;
+		
+		//std::string src_mac_string = mac_to_string(src_mac);
 		std::string src_ip_string = ip_to_string(src_ip);
 		
 		//click_chatter("----Data from pong------\n");
@@ -141,14 +163,17 @@ void GatewaySelector::process_pong(Packet * p)
 		//			 src_ip_string.c_str()
 		//			);
 		//click_chatter("------------------------\n");
-		click_chatter("Added %s with %s", src_ip_string.c_str(), src_mac_string.c_str()); 
+
+		//		click_chatter("Added %s with %s and link speed %" PRIu16 ".", src_ip_string.c_str(), src_mac_string.c_str(), link_speed); 
+		//		click_chatter("%s,%s,%" PRIu16, src_ip_string.c_str(), link_speed);
+
 		// Find this gate's entry using its mac address which is the source mac address
 		
 		std::vector<GateInfo>::iterator it;
-
+		
 		for(it = gates.begin(); it!=gates.end(); it++)
-		{
-			if((*it).mac_address == src_mac_string)
+		  {
+		    if( ((*it).mac_address[0] == src_mac[0]) && ((*it).mac_address[1] == src_mac[1]) && ((*it).mac_address[2] == src_mac[2]) && ((*it).mac_address[3] == src_mac[3]) && ((*it).mac_address[4] == src_mac[4]) && ((*it).mac_address[5] == src_mac[5]))
 			{
 				if((*it).ip_address != src_ip_string)
 				{			
@@ -157,19 +182,29 @@ void GatewaySelector::process_pong(Packet * p)
 				  //		src_mac_string.c_str());
 					
 					(*it).ip_address = src_ip_string; 
+					(*it).link_kbps = link_speed;
 				}
 				(*it).timestamp = time(NULL);
 				break;
 			}
 		}
-
+		
 		//New gate discovered
 		if(it == gates.end()) {
 		  GateInfo new_gate;
+		
 		  new_gate.ip_address = src_ip_string;
-		  new_gate.mac_address = src_mac_string;
+		  for(int i = 0;i<6;i++)
+		    {
+		    new_gate.mac_address[i] = src_mac[i];
+		    }
+
+		  new_gate.link_kbps = link_speed;
+		
 		  new_gate.timestamp = time(NULL);
-		  
+		 
+		  click_chatter("%s,%x:%x:%x:%x:%x:%x,%" PRIu16, src_ip_string.c_str(), src_mac[0], src_mac[1], src_mac[2], src_mac[3], src_mac[4], src_mac[5], link_speed);
+		 
 		  // put metrics when extending this function here
 
 		  gates.push_back(new_gate);		  
@@ -178,12 +213,14 @@ void GatewaySelector::process_pong(Packet * p)
 		//Printing the list of gates. Drop this later.
 		//click_chatter("gates(%d):\n",gates.size());
 
-		for(it = gates.begin(); it!=gates.end(); ++it) {
-		  //click_chatter("%s -> %s\n",((*it).mac_address).c_str(), ((*it).ip_address).c_str());
-		}				
+		// for(it = gates.begin(); it!=gates.end(); ++it) {
+		//   //click_chatter("%s -> %s\n",((*it).mac_address).c_str(), ((*it).ip_address).c_str());
+		// }
 	}
 	else
-	  click_chatter("Malformed packet received without header!\n");		
+	  {
+	  }
+	//click_chatter("Malformed packet received without header!\n");		
 }
 
 void GatewaySelector::process_antipong(Packet * p)
@@ -216,79 +253,77 @@ void GatewaySelector::process_antipong(Packet * p)
 			ptr++;
 		}
 		
-		std::string src_mac_string = mac_to_string(src_mac);
+		//		std::string src_mac_string = mac_to_string(src_mac);
 		std::string src_ip_string = ip_to_string(src_ip);
-		
-		//click_chatter("----Data from pong------\n");
-		//click_chatter("src_mac: %s\nnsrc_ip: %s\n",					
-		// src_mac_string.c_str(),
-		//			 src_ip_string.c_str()
-		//			);
+
 		//click_chatter("------------------------\n");
-		click_chatter("Removing %s with %s from gate table.", src_ip_string.c_str(), src_mac_string.c_str()); 
+		//		click_chatter("Removing %s with %s from gate table.", src_ip_string.c_str(), src_mac_string.c_str()); 
 		// Find this gate's entry using its mac address which is the source mac address
 		
 		std::vector<GateInfo>::iterator it;
 
 		for(it = gates.begin(); it!=gates.end(); it++)
 		  {
-		    if((*it).mac_address == src_mac_string)
+		    if(((*it).mac_address[0] == src_mac[0]) && ((*it).mac_address[1] == src_mac[1]) && ((*it).mac_address[2] == src_mac[2]) && ((*it).mac_address[3] == src_mac[3]) && ((*it).mac_address[4] == src_mac[4]) && ((*it).mac_address[5] == src_mac[5]))
 		      {
+			uint16_t deleted_gate_index = std::distance(gates.begin(), it);
+
 			it = gates.erase(it);
 
-			std::vector<PortCache>::iterator it = port_cache_table.begin();
+			std::vector<PortCache>::iterator it2 = port_cache_table.begin();
 
-			while(it != port_cache_table.end())
+			while(it2 != port_cache_table.end())
 			  {
-			    if(((*it).gate_ip).unparse() == src_ip_string.c_str())
+			    if((*it2).gates_index == deleted_gate_index)
 			      {
-				click_chatter("Removed %s from port cache table", src_ip_string.c_str());
-				it = port_cache_table.erase(it);
-				
+				// click_chatter("Removed %d from port cache table", deleted_gate_index);
+				it2 = port_cache_table.erase(it2);
 			      }
 			    else
-			      ++it;
+			      ++it2;
 			  }			
 			break;
 		      }
 		  }
 	}
 	else
-	  click_chatter("Malformed antipong packet received!\n");
+	  {
+	  }
+	//	  click_chatter("Malformed antipong packet received!\n");
 }
 
 
 void GatewaySelector::push(int port, Packet *p)
 {
-  //click_chatter("Inside push()\n");
+  //  click_chatter("Inside push()\n");
+  Packet *q;
+
   switch(port)
     {
     case 0: /* Normal packet for setting the gateway */
-      //click_chatter("Calling case 0 : select_gate\n");      
-      p = select_gate(p);
 
-      if(p == NULL)
+      //click_chatter("Calling case 0 : select_gate\n");      
+      q = select_gate(p);
+      //click_chatter("Select gate returned:");
+      
+      if(q == NULL)
 	{
-	  click_chatter("Select gate returning NULL packet! This seems like a bug.");
-	}
-      else if((p->dst_ip_anno()).unparse() == "0.0.0.0")
-	{
-	  //click_chatter("IP Address is 0.0.0.0. Pushing on [1]");
-	  output(1).push(p);
+	  output(1).push(p);	
 	}
       else
-	output(0).push(p);
+	output(0).push(q);
+
       break;
       
     case 1:
-      //click_chatter("case 1 : process_pong\n");		   
+      //      click_chatter("case 1 : process_pong\n");		   
       process_pong(p);
       p -> kill();
       // output(1).push(p); // Do something with this packet
       break;
 
     case 2:
-      click_chatter("Got antipong.");
+      //      click_chatter("Got antipong.");
       process_antipong(p);
       p -> kill();
       break;
@@ -304,8 +339,8 @@ FIXED by adding another output
 
 Packet * GatewaySelector::select_gate(Packet *p)
 {
-  IPAddress ip;
-  //click_chatter("Inside select_gate function");
+  int port_index;
+  //  click_chatter("Inside select_gate function");
 
   if(p->has_transport_header())
     {
@@ -314,31 +349,59 @@ Packet * GatewaySelector::select_gate(Packet *p)
       // Need a better way to extract src port
       // maybe ntohs(tcp_header->th_sport) where tcp_header is a struct click_tcp object.
       uint16_t src_port = 0;
+      
       src_port += *ptr;
       ptr++;
       src_port = src_port << 8;
       src_port += *ptr;
-      //click_chatter("src port is : %" PRIu16 "\n",src_port);
+      click_chatter("src port is : %" PRIu16 "\n",src_port);
       
-      ip = cache_lookup(src_port);
-      
-      if(ip == IPAddress(String("0.0.0.0")))
+      port_index = cache_lookup(src_port);
+      //      click_chatter("Port index was returned");
+
+      WritablePacket *q = p->push_mac_header(14);
+      uint8_t *q_ptr = q->data();
+      uint16_t gates_index;
+
+      //      click_chatter("All fine till now , PI = %d", port_index);
+
+      if(port_index != -1)
 	{
 	  //click_chatter("IP 0.0.0.0");
-	  ip = find_gate(src_port);
-
-	  if(ip != IPAddress(String("0.0.0.0")))
-	    cache_update(src_port,ip);
+	  gates_index = port_cache_table[port_index].gates_index;
 	}
+      else
+	{	  
+	  if(gates.size() == 0)
+	    {
+	    gates_index = -1;
+	    return NULL;
+	    }
+	  else 
+	    {
+	    gates_index = src_port % gates.size();	    
+	    //	    click_chatter("Calling cache_update");
+	    cache_update(src_port, gates_index);
+	    }
+	}
+
+      uint8_t type[2] = {0x08, 0x00};
+      //      click_chatter("Doing Ether Encap now");
+
+      //Etherencap happens here
+      memcpy(q_ptr, gates[gates_index].mac_address, 6);
+      q_ptr+=6;
+      memcpy(q_ptr, self_mac_address, 6);
+      q_ptr+=6;
+      memcpy(q_ptr, type, 2);
       
-      p = set_ip_address(p,ip);
-      return p;
+      return (Packet *)q;
     }
   else
     return NULL;
 }
 
-IPAddress GatewaySelector::cache_lookup(uint16_t src_port)
+int GatewaySelector::cache_lookup(uint16_t src_port)
 {
   std::vector<PortCache>::iterator it = port_cache_table.begin();
 
@@ -349,44 +412,24 @@ IPAddress GatewaySelector::cache_lookup(uint16_t src_port)
     if((*it).src_port == src_port)
       {
  	//click_chatter("Returning gate ip from cache as : %s", ((*it).gate_ip).unparse().c_str());
-	return (*it).gate_ip;
+	//return (*it).gate_ip;
+	return std::distance(port_cache_table.begin(), it);
       }
     ++it;
   }
   
   //click_chatter("Returning from cache 0.0.0.0");
-  return IPAddress(String("0.0.0.0"));
+  return -1;
 }
 
-Packet * GatewaySelector::set_ip_address(Packet *p, IPAddress ip)
-{
-  //click_chatter("Calling set_ip_address");
-  p->set_dst_ip_anno(ip); // is setting annotation fine or we should use set_ip_header()?
-  return p;
-}
-
-IPAddress GatewaySelector::find_gate(uint16_t src_port)
-{
-  int index;
-
-  if(gates.size() > 0)
-    {
-      index = src_port % gates.size();  
-      return IPAddress(String((gates[index].ip_address).c_str()));
-    }
-  else
-    {
-      return IPAddress(String("0.0.0.0"));
-    }
-}
-
-void GatewaySelector::cache_update(uint16_t src_port, IPAddress ip)
+void GatewaySelector::cache_update(uint16_t src_port, uint16_t gates_index)
 {
   PortCache entry;
   entry.src_port = src_port;
-  entry.gate_ip = ip;
-  entry.timestamp = 0;
+  entry.gates_index = gates_index;
+  entry.timestamp = time(NULL);
   port_cache_table.push_back(entry);
+  click_chatter("Returning updated cache");
 }
 
 CLICK_ENDDECLS
