@@ -84,7 +84,7 @@ void GatewaySelector::run_timer(Timer *timer)
 		  
 		  if(((*it).timestamp - time(NULL)) > STALE_ENTRY_THRESHOLD)
 		    {
-		      //click_chatter("Removing gate %s\n", (*it).ip_address.c_str());
+		      click_chatter("Removing gate %s due to inactivity.\n", (*it).ip_address.c_str());
 		      it = gates.erase(it);
 		    }
 		}
@@ -148,7 +148,9 @@ void GatewaySelector::process_pong(Packet * p)
 			ptr++;
 		}
 		//extract link speed
-		
+
+		//		click_chatter("Extract link speed");
+
 		link_speed = *ptr;
 		link_speed = link_speed<<8;
 		ptr++;
@@ -170,7 +172,8 @@ void GatewaySelector::process_pong(Packet * p)
 		// Find this gate's entry using its mac address which is the source mac address
 		
 		std::vector<GateInfo>::iterator it;
-		
+		//		click_chatter("Going through gates.");
+
 		for(it = gates.begin(); it!=gates.end(); it++)
 		  {
 		    if( ((*it).mac_address[0] == src_mac[0]) && ((*it).mac_address[1] == src_mac[1]) && ((*it).mac_address[2] == src_mac[2]) && ((*it).mac_address[3] == src_mac[3]) && ((*it).mac_address[4] == src_mac[4]) && ((*it).mac_address[5] == src_mac[5]))
@@ -199,15 +202,16 @@ void GatewaySelector::process_pong(Packet * p)
 		    new_gate.mac_address[i] = src_mac[i];
 		    }
 
-		  new_gate.link_kbps = link_speed;
-		
+		  new_gate.link_kbps = link_speed;		
 		  new_gate.timestamp = time(NULL);
-		 
-		  click_chatter("%s,%x:%x:%x:%x:%x:%x,%" PRIu16, src_ip_string.c_str(), src_mac[0], src_mac[1], src_mac[2], src_mac[3], src_mac[4], src_mac[5], link_speed);
+
+
+		  click_chatter("Adding Gate: %s [%x:%x:%x:%x:%x:%x] (%" PRIu16 " kbps)", src_ip_string.c_str(), src_mac[0], src_mac[1], src_mac[2], src_mac[3], src_mac[4], src_mac[5], link_speed);
 		 
 		  // put metrics when extending this function here
 
-		  gates.push_back(new_gate);		  
+		  gates.push_back(new_gate);	
+		  click_chatter("Gate pushed.");
 		}
 
 		//Printing the list of gates. Drop this later.
@@ -221,6 +225,7 @@ void GatewaySelector::process_pong(Packet * p)
 	  {
 	  }
 	//click_chatter("Malformed packet received without header!\n");		
+	click_chatter("Processed pong.");
 }
 
 void GatewaySelector::process_antipong(Packet * p)
@@ -232,6 +237,7 @@ void GatewaySelector::process_antipong(Packet * p)
   // 4. Remove the gate_info struct from unresolved and put it in resolved.
 	uint8_t src_mac[6], src_ip[4];	
 	uint8_t *ptr = NULL;
+	bool gate_removed = false;
 
 	//click_chatter("Inside process_pong\n");
 
@@ -257,7 +263,7 @@ void GatewaySelector::process_antipong(Packet * p)
 		std::string src_ip_string = ip_to_string(src_ip);
 
 		//click_chatter("------------------------\n");
-		//		click_chatter("Removing %s with %s from gate table.", src_ip_string.c_str(), src_mac_string.c_str()); 
+		click_chatter("Request for Removal : %s [%x:%x:%x:%x:%x:%x]", src_ip_string.c_str(), src_mac[0], src_mac[1], src_mac[2], src_mac[3], src_mac[4], src_mac[5]);
 		// Find this gate's entry using its mac address which is the source mac address
 		
 		std::vector<GateInfo>::iterator it;
@@ -267,8 +273,9 @@ void GatewaySelector::process_antipong(Packet * p)
 		    if(((*it).mac_address[0] == src_mac[0]) && ((*it).mac_address[1] == src_mac[1]) && ((*it).mac_address[2] == src_mac[2]) && ((*it).mac_address[3] == src_mac[3]) && ((*it).mac_address[4] == src_mac[4]) && ((*it).mac_address[5] == src_mac[5]))
 		      {
 			uint16_t deleted_gate_index = std::distance(gates.begin(), it);
-
+			
 			it = gates.erase(it);
+			gate_removed = true;
 
 			std::vector<PortCache>::iterator it2 = port_cache_table.begin();
 
@@ -279,12 +286,22 @@ void GatewaySelector::process_antipong(Packet * p)
 				// click_chatter("Removed %d from port cache table", deleted_gate_index);
 				it2 = port_cache_table.erase(it2);
 			      }
+			    else if((*it2).gates_index > deleted_gate_index)
+			      {
+				((*it2).gates_index) -= 1;
+				++it2;
+			      }
 			    else
 			      ++it2;
 			  }			
 			break;
 		      }
 		  }
+
+		if(!gate_removed)		  
+		  click_chatter("No such gate exists in table.");		  
+		else
+		  click_chatter("Gate removed");
 	}
 	else
 	  {
@@ -316,7 +333,8 @@ void GatewaySelector::push(int port, Packet *p)
       break;
       
     case 1:
-      //      click_chatter("case 1 : process_pong\n");		   
+      //      click_chatter("case 1 : process_pong\n");
+      //      click_chatter("Caling process_pong");
       process_pong(p);
       p -> kill();
       // output(1).push(p); // Do something with this packet
@@ -334,7 +352,7 @@ void GatewaySelector::push(int port, Packet *p)
 TODO : Function is mostly broken for the scenario when no gates exist.
 Find a way to associate an error handler which gracefully drops the packet
 instead of the ugly hack used right now
-FIXED by adding another output
+FIXED by adding another output port.
 */
 
 Packet * GatewaySelector::select_gate(Packet *p)
@@ -346,6 +364,7 @@ Packet * GatewaySelector::select_gate(Packet *p)
     {
       //click_chatter("Yes, Has a transport header");
       uint8_t *ptr = (uint8_t *)p->transport_header();
+
       // Need a better way to extract src port
       // maybe ntohs(tcp_header->th_sport) where tcp_header is a struct click_tcp object.
       uint16_t src_port = 0;
@@ -354,7 +373,7 @@ Packet * GatewaySelector::select_gate(Packet *p)
       ptr++;
       src_port = src_port << 8;
       src_port += *ptr;
-      click_chatter("src port is : %" PRIu16 "\n",src_port);
+      //      click_chatter("src port is : %" PRIu16 "\n",src_port);
       
       port_index = cache_lookup(src_port);
       //      click_chatter("Port index was returned");
@@ -405,7 +424,7 @@ int GatewaySelector::cache_lookup(uint16_t src_port)
 {
   std::vector<PortCache>::iterator it = port_cache_table.begin();
 
-  //click_chatter("Inside cache_lookup");
+  //click_chatter("Inside cache_look up");
 
   while(it != port_cache_table.end())
   {
@@ -429,7 +448,7 @@ void GatewaySelector::cache_update(uint16_t src_port, uint16_t gates_index)
   entry.gates_index = gates_index;
   entry.timestamp = time(NULL);
   port_cache_table.push_back(entry);
-  click_chatter("Returning updated cache");
+  //  click_chatter("Returning updated cache");
 }
 
 CLICK_ENDDECLS
