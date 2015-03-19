@@ -14,8 +14,8 @@
 
 CLICK_DECLS
 
-#define GATES_REFRESH_INTERVAL 6000 // in seconds
-#define STALE_ENTRY_THRESHOLD 6000 //in seconds
+#define GATES_REFRESH_INTERVAL 15 // in seconds
+#define STALE_ENTRY_THRESHOLD 20 //in seconds
 
 std::string mac_to_string(uint8_t address[])
 {
@@ -77,12 +77,14 @@ int GatewaySelector::initialize(ErrorHandler *)
 
 void GatewaySelector::run_timer(Timer *timer)
 {
+  click_chatter("Run_timer called");
 		assert(timer == &_master_timer);
 		
 		std::vector<GateInfo>::iterator it;
 		for(it = gates.begin(); it != gates.end(); ++it) {
-		  
-		  if(((*it).timestamp - time(NULL)) > STALE_ENTRY_THRESHOLD)
+		  click_chatter("ts = %u and time(NULL) = %u", (*it).timestamp, time(NULL));
+
+		  if((time(NULL) - (*it).timestamp) > STALE_ENTRY_THRESHOLD)
 		    {
 		      click_chatter("Removing gate %s due to inactivity.\n", (*it).ip_address.c_str());
 		      it = gates.erase(it);
@@ -92,14 +94,14 @@ void GatewaySelector::run_timer(Timer *timer)
 		std::vector<PortCache>::iterator iter;
 		for(iter = port_cache_table.begin(); iter != port_cache_table.end(); ++iter) {
 		  
-		  if(((*iter).timestamp - time(NULL)) > STALE_ENTRY_THRESHOLD)
+		  if((time(NULL) - (*iter).timestamp) > STALE_ENTRY_THRESHOLD)
 		    {
 		      //click_chatter("Removing entry for port no. %d\n", (*iter).src_port);
 		      iter = port_cache_table.erase(iter);
 		    }
 		}
 		
-		_master_timer.reschedule_after_sec(GATES_REFRESH_INTERVAL);	
+		_master_timer.reschedule_after_sec(GATES_REFRESH_INTERVAL);
 }
 
 int
