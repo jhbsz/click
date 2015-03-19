@@ -46,9 +46,6 @@ GatewaySelector::GatewaySelector()
       _print_checksum(false),
       _master_timer(this)
 {
-  // _label = "";
-  //   click_chatter("Inside constructor. Leaving now \n");
-  //  click_chatter("Start of constructor");
   FILE *addr = fopen("/sys/class/net/mesh0/address", "r");
   if(addr!=NULL)
     {
@@ -61,7 +58,6 @@ GatewaySelector::GatewaySelector()
       printf("Failed to read Mac address");      
       exit(0);
     }
-  //  click_chatter("End of constructor");
 }
 
 GatewaySelector::~GatewaySelector()
@@ -70,7 +66,6 @@ GatewaySelector::~GatewaySelector()
 
 int GatewaySelector::initialize(ErrorHandler *)
 {
-  //click_chatter("Initialize inside.");
   _master_timer.initialize(this);
   _master_timer.schedule_now();
   return 0;
@@ -78,13 +73,10 @@ int GatewaySelector::initialize(ErrorHandler *)
 
 void GatewaySelector::run_timer(Timer *timer)
 {
-//		click_chatter("Run_timer called");
 		assert(timer == &_master_timer);
 		
 		std::vector<GateInfo>::iterator it;
 		for(it = gates.begin(); it != gates.end(); ) {
-//		    ts_time_difference = 
-//		    click_chatter("ts = %u and time(NULL) = %u and %u", (*it).timestamp, time(NULL),time(NULL) - (*it).timestamp);
 
 		    if((time(NULL) - (*it).timestamp) > STALE_ENTRY_THRESHOLD)
 			{
@@ -134,10 +126,8 @@ GatewaySelector::configure(Vector<String> &conf, ErrorHandler* errh)
 void GatewaySelector::process_pong(Packet * p)
 {
   // process pong here
-  // 1. extract mac, ip and metric in pong
-  // 2. look for mac as key in unresolved_gates map
-  // 3. update the corresponding gate_info structure.
-  // 4. Remove the gate_info struct from unresolved and put it in resolved.
+  // 1. extract mac, ip and metric from pong
+  // 2. upate gate table with extracted info
 
         uint8_t src_mac[6];
 	uint8_t src_ip[4];	
@@ -180,13 +170,13 @@ void GatewaySelector::process_pong(Packet * p)
 		//			);
 		//click_chatter("------------------------\n");
 
-		//		click_chatter("Added %s with %s and link speed %" PRIu16 ".", src_ip_string.c_str(), src_mac_string.c_str(), link_speed); 
-		//		click_chatter("%s,%s,%" PRIu16, src_ip_string.c_str(), link_speed);
+		//click_chatter("Added %s with %s and link speed %" PRIu16 ".", src_ip_string.c_str(), src_mac_string.c_str(), link_speed); 
+		//click_chatter("%s,%s,%" PRIu16, src_ip_string.c_str(), link_speed);
 
 		// Find this gate's entry using its mac address which is the source mac address
 		
 		std::vector<GateInfo>::iterator it;
-		//		click_chatter("Going through gates.");
+		//click_chatter("Going through gates.");
 
 		for(it = gates.begin(); it!=gates.end(); it++)
 		  {
@@ -194,9 +184,9 @@ void GatewaySelector::process_pong(Packet * p)
 			{
 				if((*it).ip_address != src_ip_string)
 				{			
-					//click_chatter("Warning: IP address changed from %s to %s for host MAC %s\n",
-				  //						(*it).ip_address.c_str(), src_ip_string.c_str(),
-				  //		src_mac_string.c_str());
+				  //click_chatter("Warning: IP address changed from %s to %s for host MAC %s\n",
+				  //(*it).ip_address.c_str(), src_ip_string.c_str(),
+				  //src_mac_string.c_str());
 					
 					(*it).ip_address = src_ip_string; 
 					(*it).link_kbps = link_speed;
@@ -224,8 +214,8 @@ void GatewaySelector::process_pong(Packet * p)
 		 
 		  // put metrics when extending this function here
 
-		  gates.push_back(new_gate);	
-		  //		  click_chatter("Gate pushed.");
+		  gates.push_back(new_gate);
+		  //click_chatter("Gate pushed.");
 		}
 
 		//Printing the list of gates. Drop this later.
@@ -238,17 +228,16 @@ void GatewaySelector::process_pong(Packet * p)
 	else
 	  {
 	  }
-	//click_chatter("Malformed packet received without header!\n");		
+	//click_chatter("Malformed packet received without header!\n");
 	//click_chatter("Processed pong.");
 }
 
 void GatewaySelector::process_antipong(Packet * p)
 {
-  // process pong here
-  // 1. extract mac, ip and metric in pong
-  // 2. look for mac as key in unresolved_gates map
-  // 3. update the corresponding gate_info structure.
-  // 4. Remove the gate_info struct from unresolved and put it in resolved.
+  // process antipong here
+  // 1. extract mac and ip
+  // 2. Remove corresponding entries from gates table
+
 	uint8_t src_mac[6], src_ip[4];	
 	uint8_t *ptr = NULL;
 	bool gate_removed = false;
@@ -259,6 +248,7 @@ void GatewaySelector::process_antipong(Packet * p)
 		ptr = (uint8_t *)p->mac_header();
 		//Skip destination as it should be a broadcast address
 		ptr+= 6;
+
 		//Skip to source mac address
 		for(int i=0; i<6; i++) {
 			src_mac[i] = *ptr;
@@ -267,18 +257,18 @@ void GatewaySelector::process_antipong(Packet * p)
 
 		//skip protocol code
 		ptr+=2;
+
 		//extract ipv4
 		for(int i=0; i<4; i++) {
 			src_ip[i] = *ptr;
 			ptr++;
 		}
 		
-		//		std::string src_mac_string = mac_to_string(src_mac);
+		//std::string src_mac_string = mac_to_string(src_mac);
 		std::string src_ip_string = ip_to_string(src_ip);
 
-		//click_chatter("------------------------\n");
 		click_chatter("Request for Removal : %s [%x:%x:%x:%x:%x:%x]", src_ip_string.c_str(), src_mac[0], src_mac[1], src_mac[2], src_mac[3], src_mac[4], src_mac[5]);
-		// Find this gate's entry using its mac address which is the source mac address
+		// Find this gate's entry using it's mac address from mac-beacon
 		
 		std::vector<GateInfo>::iterator it;
 
@@ -297,7 +287,6 @@ void GatewaySelector::process_antipong(Packet * p)
 			  {
 			    if((*it2).gates_index == deleted_gate_index)
 			      {
-				// click_chatter("Removed %d from port cache table", deleted_gate_index);
 				it2 = port_cache_table.erase(it2);
 			      }
 			    else if((*it2).gates_index > deleted_gate_index)
@@ -333,9 +322,7 @@ void GatewaySelector::push(int port, Packet *p)
     {
     case 0: /* Normal packet for setting the gateway */
 
-      //click_chatter("Calling case 0 : select_gate\n");      
       q = select_gate(p);
-      //click_chatter("Select gate returned:");
       
       if(q == NULL)
 	{
@@ -347,15 +334,13 @@ void GatewaySelector::push(int port, Packet *p)
       break;
       
     case 1:
-      //      click_chatter("case 1 : process_pong\n");
-      //      click_chatter("Caling process_pong");
+      //click_chatter("case 1 : process_pong\n");
       process_pong(p);
       p -> kill();
-      // output(1).push(p); // Do something with this packet
       break;
 
     case 2:
-      //      click_chatter("Got antipong.");
+      //click_chatter("Got antipong.");
       process_antipong(p);
       p -> kill();
       break;
@@ -366,17 +351,15 @@ void GatewaySelector::push(int port, Packet *p)
 TODO : Function is mostly broken for the scenario when no gates exist.
 Find a way to associate an error handler which gracefully drops the packet
 instead of the ugly hack used right now
-FIXED by adding another output port.
+FIXED: by adding another output port.
 */
 
 Packet * GatewaySelector::select_gate(Packet *p)
 {
   int port_index;
-  //  click_chatter("Inside select_gate function");
 
   if(p->has_transport_header())
     {
-      //click_chatter("Yes, Has a transport header");
       uint8_t *ptr = (uint8_t *)p->transport_header();
 
       // Need a better way to extract src port
@@ -387,16 +370,12 @@ Packet * GatewaySelector::select_gate(Packet *p)
       ptr++;
       src_port = src_port << 8;
       src_port += *ptr;
-      //      click_chatter("src port is : %" PRIu16 "\n",src_port);
       
       port_index = cache_lookup(src_port);
-      //      click_chatter("Port index was returned");
 
       WritablePacket *q = p->push_mac_header(14);
       uint8_t *q_ptr = q->data();
       uint16_t gates_index;
-
-      //      click_chatter("All fine till now , PI = %d", port_index);
 
       if(port_index != -1)
 	{
@@ -413,13 +392,12 @@ Packet * GatewaySelector::select_gate(Packet *p)
 	  else 
 	    {
 	    gates_index = src_port % gates.size();	    
-	    //	    click_chatter("Calling cache_update");
+	    //click_chatter("Calling cache_update");
 	    cache_update(src_port, gates_index);
 	    }
 	}
 
       uint8_t type[2] = {0x08, 0x00};
-      //      click_chatter("Doing Ether Encap now");
 
       //Etherencap happens here
       memcpy(q_ptr, gates[gates_index].mac_address, 6);
@@ -438,20 +416,15 @@ int GatewaySelector::cache_lookup(uint16_t src_port)
 {
   std::vector<PortCache>::iterator it = port_cache_table.begin();
 
-  //click_chatter("Inside cache_look up");
-
   while(it != port_cache_table.end())
   {
     if((*it).src_port == src_port)
-      {
- 	//click_chatter("Returning gate ip from cache as : %s", ((*it).gate_ip).unparse().c_str());
-	//return (*it).gate_ip;
+      {	
 	return std::distance(port_cache_table.begin(), it);
       }
     ++it;
   }
   
-  //click_chatter("Returning from cache 0.0.0.0");
   return -1;
 }
 
@@ -462,7 +435,6 @@ void GatewaySelector::cache_update(uint16_t src_port, uint16_t gates_index)
   entry.gates_index = gates_index;
   entry.timestamp = time(NULL);
   port_cache_table.push_back(entry);
-  //  click_chatter("Returning updated cache");
 }
 
 CLICK_ENDDECLS
