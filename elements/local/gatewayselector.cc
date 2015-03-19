@@ -10,6 +10,7 @@
 #include <click/etheraddress.hh>
 #include <string>
 #include <cstdio>
+
 #include "gatewayselector.hh"
 
 CLICK_DECLS
@@ -77,28 +78,39 @@ int GatewaySelector::initialize(ErrorHandler *)
 
 void GatewaySelector::run_timer(Timer *timer)
 {
-  click_chatter("Run_timer called");
+//		click_chatter("Run_timer called");
 		assert(timer == &_master_timer);
 		
 		std::vector<GateInfo>::iterator it;
-		for(it = gates.begin(); it != gates.end(); ++it) {
-		  click_chatter("ts = %u and time(NULL) = %u", (*it).timestamp, time(NULL));
+		for(it = gates.begin(); it != gates.end(); ) {
+//		    ts_time_difference = 
+//		    click_chatter("ts = %u and time(NULL) = %u and %u", (*it).timestamp, time(NULL),time(NULL) - (*it).timestamp);
 
-		  if((time(NULL) - (*it).timestamp) > STALE_ENTRY_THRESHOLD)
-		    {
-		      click_chatter("Removing gate %s due to inactivity.\n", (*it).ip_address.c_str());
-		      it = gates.erase(it);
-		    }
+		    if((time(NULL) - (*it).timestamp) > STALE_ENTRY_THRESHOLD)
+			{
+			click_chatter("Removing gate %s due to inactivity.\n", (*it).ip_address.c_str());
+			it = gates.erase(it);
+			}
+		    else
+			++it;
+		    
+		    if(gates.size() == 0)
+			break;
 		}
 
 		std::vector<PortCache>::iterator iter;
-		for(iter = port_cache_table.begin(); iter != port_cache_table.end(); ++iter) {
+		for(iter = port_cache_table.begin(); iter != port_cache_table.end();) {
 		  
 		  if((time(NULL) - (*iter).timestamp) > STALE_ENTRY_THRESHOLD)
 		    {
 		      //click_chatter("Removing entry for port no. %d\n", (*iter).src_port);
 		      iter = port_cache_table.erase(iter);
 		    }
+		  else
+		      ++iter;
+
+		  if(port_cache_table.size() == 0)
+		      break;
 		}
 		
 		_master_timer.reschedule_after_sec(GATES_REFRESH_INTERVAL);
@@ -162,7 +174,7 @@ void GatewaySelector::process_pong(Packet * p)
 		std::string src_ip_string = ip_to_string(src_ip);
 		
 		//click_chatter("----Data from pong------\n");
-		//click_chatter("src_mac: %s\nnsrc_ip: %s\n",					
+		//click_chatter("src_mac: %s\nnsrc_ip: %s\n",		
 		// src_mac_string.c_str(),
 		//			 src_ip_string.c_str()
 		//			);
@@ -227,7 +239,7 @@ void GatewaySelector::process_pong(Packet * p)
 	  {
 	  }
 	//click_chatter("Malformed packet received without header!\n");		
-	//	click_chatter("Processed pong.");
+	//click_chatter("Processed pong.");
 }
 
 void GatewaySelector::process_antipong(Packet * p)
