@@ -211,7 +211,7 @@ void GatewaySelector::process_pong(Packet * p)
 		  // put metrics when extending this function here
 
 		  gates.push_back(new_gate);	
-		  click_chatter("Gate pushed.");
+		  //		  click_chatter("Gate pushed.");
 		}
 
 		//Printing the list of gates. Drop this later.
@@ -225,7 +225,7 @@ void GatewaySelector::process_pong(Packet * p)
 	  {
 	  }
 	//click_chatter("Malformed packet received without header!\n");		
-	click_chatter("Processed pong.");
+	//	click_chatter("Processed pong.");
 }
 
 void GatewaySelector::process_antipong(Packet * p)
